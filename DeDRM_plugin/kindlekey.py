@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from __future__ import with_statement
+from __future__ import with_statement, print_function
 
 # kindlekey.py
 # Copyright © 2008-2020 Apprentice Harper et al.
@@ -932,6 +932,25 @@ if iswindows:
         return CryptUnprotectData
     CryptUnprotectData = CryptUnprotectData()
 
+    def CryptProtectData():
+        _CryptProtectData = crypt32.CryptProtectData
+        _CryptProtectData.argtypes = [DataBlob_p, c_wchar_p, DataBlob_p,
+                                       c_void_p, c_void_p, c_uint, DataBlob_p]
+        _CryptProtectData.restype = c_uint
+        def CryptProtectData(indata, entropy, flags):
+            indatab = create_string_buffer(indata)
+            indata = DataBlob(len(indata), cast(indatab, c_void_p))
+            entropyb = create_string_buffer(entropy)
+            entropy = DataBlob(len(entropy), cast(entropyb, c_void_p))
+            outdata = DataBlob()
+            if not _CryptProtectData(byref(indata), None, byref(entropy),
+                                       None, None, flags, byref(outdata)):
+                # raise DrmException("Failed to Protect Data")
+                return 'failed'
+            return string_at(outdata.pbData, outdata.cbData)
+        return CryptProtectData
+    CryptProtectData = CryptProtectData()
+
     # Returns Environmental Variables that contain unicode
     def getEnvironmentVariable(name):
         import ctypes
@@ -1024,6 +1043,7 @@ if iswindows:
     # determine type of kindle info provided and return a
     # database of keynames and values
     def getDBfromFile(kInfoFile):
+        print("kInfoFile: {0}".format(kInfoFile))
         names = [\
             'kindle.account.tokens',\
             'kindle.cookie.item',\
@@ -1060,7 +1080,9 @@ if iswindows:
         # starts with an encoded and encrypted header blob
         headerblob = items.pop(0)
         encryptedValue = decode(headerblob, testMap1)
+        print("Decoded header blob value: [{0}]".format(encryptedValue))
         cleartext = UnprotectHeaderData(encryptedValue)
+        print("Unprotected header blob value: [{0}]".format(cleartext))
         #print "header  cleartext:",cleartext
         # now extract the pieces that form the added entropy
         pattern = re.compile(r'''\[Version:(\d+)\]\[Build:(\d+)\]\[Cksum:([^\]]+)\]\[Guid:([\{\}a-z0-9\-]+)\]''', re.IGNORECASE)
@@ -1071,11 +1093,23 @@ if iswindows:
 
         if version == 5:  # .kinf2011
             added_entropy = build + guid
+            print("kinf2011:")
+            print("Added Entropy: {0}".format(added_entropy))
+            print("Added Entropy: {0}".format(added_entropy.encode('hex')))
         elif version == 6:  # .kinf2018
             salt = str(0x6d8 * int(build)) + guid
             sp = GetUserName() + '+@#$%+' + GetIDString()
             passwd = encode(SHA256(sp), charMap5)
             key = KeyIVGen().pbkdf2(passwd, salt, 10000, 0x400)[:32]  # this is very slow
+            print("kinf2018:")
+            print("salt: {0}".format(salt))
+            print("salt: {0}".format(salt.encode('hex')))
+            print("sp: {0}".format(sp))
+            print("sp: {0}".format(sp.encode('hex')))
+            print("passwd: {0}".format(passwd))
+            print("passwd: {0}".format(passwd.encode('hex')))
+            print("key: {0}".format(key))
+            print("key: {0}".format(key.encode('hex')))
 
         # loop through the item records until all are processed
         while len(items) > 0:
@@ -1086,6 +1120,7 @@ if iswindows:
             # the first 32 chars of the first record of a group
             # is the MD5 hash of the key name encoded by charMap5
             keyhash = item[0:32]
+            print("Key hash: {0}".format(keyhash))
 
             # the remainder of the first record when decoded with charMap5
             # has the ':' split char followed by the string representation
@@ -1093,6 +1128,7 @@ if iswindows:
             # and make up the contents
             srcnt = decode(item[34:],charMap5)
             rcnt = int(srcnt)
+            print("Record count: {0}".format(rcnt))
 
             # read and store in rcnt records of data
             # that make up the contents value
@@ -1106,11 +1142,11 @@ if iswindows:
             for name in names:
                 if encodeHash(name,testMap8) == keyhash:
                     keyname = name
-                    #print "keyname found from hash:",keyname
+                    print("keyname found from hash:", keyname)
                     break
             if keyname == "unknown":
                 keyname = keyhash
-                #print "keyname not found, hash is:",keyname
+                print("keyname not found, hash is:", keyname)
 
             # the testMap8 encoded contents data has had a length
             # of chars (always odd) cut off of the front and moved
@@ -1126,19 +1162,23 @@ if iswindows:
             # by moving noffset chars from the start of the
             # string to the end of the string
             encdata = "".join(edlst)
-            #print "encrypted data:",encdata
+            print("encrypted data:", encdata)
             contlen = len(encdata)
             noffset = contlen - primes(int(contlen/3))[-1]
             pfx = encdata[0:noffset]
             encdata = encdata[noffset:]
             encdata = encdata + pfx
-            #print "rearranged data:",encdata
+            print("rearranged data:",encdata)
 
             if version == 5:
                 # decode using new testMap8 to get the original CryptProtect Data
                 encryptedValue = decode(encdata,testMap8)
-                #print "decoded data:",encryptedValue.encode('hex')
+                print("decoded data:", encryptedValue.encode('hex'))
+                # the sha1 of raw keyhash string is used to create entropy along
+                # with the added entropy provided above from the headerblob
                 entropy = SHA1(keyhash) + added_entropy
+                print("Entropy: {0}".format(entropy))
+                print("Entropy: {0}".format(entropy.encode('hex')))
                 cleartext = CryptUnprotectData(encryptedValue, entropy, 1)
             elif version == 6:
                 from Crypto.Cipher import AES
@@ -1158,17 +1198,17 @@ if iswindows:
                 cleartext = decode(cipher.decrypt(ciphertext), charMap5)
 
             if len(cleartext)>0:
-                #print "cleartext data:",cleartext,":end data"
+                print("cleartext data:", cleartext, ":end data")
                 DB[keyname] = cleartext
-            #print keyname, cleartext
+            print(keyname, cleartext)
 
         if len(DB)>6:
             # store values used in decryption
             DB['IDString'] = GetIDString()
             DB['UserName'] = GetUserName()
-            print u"Decrypted key file using IDString '{0:s}' and UserName '{1:s}'".format(GetIDString(), GetUserName().encode('hex'))
+            print(u"Decrypted key file using IDString '{0:s}' and UserName '{1:s}'".format(GetIDString(), GetUserName().encode('hex')))
         else:
-            print u"Couldn't decrypt file."
+            print(u"Couldn't decrypt file.")
             DB = {}
         return DB
 elif isosx:
@@ -1609,11 +1649,11 @@ elif isosx:
                 pass
         if len(DB)>6:
             # store values used in decryption
-            print u"Decrypted key file using IDString '{0:s}' and UserName '{1:s}'".format(IDString, GetUserName())
+            print(u"Decrypted key file using IDString '{0:s}' and UserName '{1:s}'".format(IDString, GetUserName()))
             DB['IDString'] = IDString
             DB['UserName'] = GetUserName()
         else:
-            print u"Couldn't decrypt file."
+            print(u"Couldn't decrypt file.")
             DB = {}
         return DB
 else:
@@ -1643,7 +1683,7 @@ def getkey(outpath, files=[]):
             outfile = outpath
             with file(outfile, 'w') as keyfileout:
                 keyfileout.write(json.dumps(keys[0]))
-            print u"Saved a key to {0}".format(outfile)
+            print(u"Saved a key to {0}".format(outfile))
         else:
             keycount = 0
             for key in keys:
@@ -1654,16 +1694,16 @@ def getkey(outpath, files=[]):
                         break
                 with file(outfile, 'w') as keyfileout:
                     keyfileout.write(json.dumps(key))
-                print u"Saved a key to {0}".format(outfile)
+                print(u"Saved a key to {0}".format(outfile))
         return True
     return False
 
 def usage(progname):
-    print u"Finds, decrypts and saves the default Kindle For Mac/PC encryption keys."
-    print u"Keys are saved to the current directory, or a specified output directory."
-    print u"If a file name is passed instead of a directory, only the first key is saved, in that file."
-    print u"Usage:"
-    print u"    {0:s} [-h] [-k <kindle.info>] [<outpath>]".format(progname)
+    print(u"Finds, decrypts and saves the default Kindle For Mac/PC encryption keys.")
+    print(u"Keys are saved to the current directory, or a specified output directory.")
+    print(u"If a file name is passed instead of a directory, only the first key is saved, in that file.")
+    print(u"Usage:")
+    print(u"    {0:s} [-h] [-k <kindle.info>] [<outpath>]".format(progname))
 
 
 def cli_main():
@@ -1671,12 +1711,12 @@ def cli_main():
     sys.stderr=SafeUnbuffered(sys.stderr)
     argv=unicode_argv()
     progname = os.path.basename(argv[0])
-    print u"{0} v{1}\nCopyright © 2010-2016 by some_updates, Apprentice Alf and Apprentice Harper".format(progname,__version__)
+    print(u"{0} v{1}\nCopyright © 2010-2016 by some_updates, Apprentice Alf and Apprentice Harper".format(progname,__version__))
 
     try:
         opts, args = getopt.getopt(argv[1:], "hk:")
-    except getopt.GetoptError, err:
-        print u"Error in options or arguments: {0}".format(err.args[0])
+    except getopt.GetoptError as err:
+        print(u"Error in options or arguments: {0}".format(err.args[0]))
         usage(progname)
         sys.exit(2)
 
@@ -1705,7 +1745,7 @@ def cli_main():
     outpath = os.path.realpath(os.path.normpath(outpath))
 
     if not getkey(outpath, files):
-        print u"Could not retrieve Kindle for Mac/PC key."
+        print(u"Could not retrieve Kindle for Mac/PC key.")
     return 0
 
 

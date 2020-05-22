@@ -11,6 +11,7 @@ import hmac
 import os
 import os.path
 import struct
+import traceback
 
 try:
     from cStringIO import StringIO
@@ -719,7 +720,21 @@ SYM_NAMES = [ 'com.amazon.drm.Envelope@1.0',
               'com.amazon.drm.EnvelopeMetadata@2.0',
               'com.amazon.drm.EncryptedPage@2.0',
               'com.amazon.drm.PlainText@2.0', 'compression_algorithm',
-              'com.amazon.drm.Compressed@1.0', 'priority', 'refines']
+              'com.amazon.drm.Compressed@1.0', 'page_index_table', 'com.amazon.drm.VoucherEnvelope@2.0',
+              'com.amazon.drm.VoucherEnvelope@2.0', 'com.amazon.drm.VoucherEnvelope@3.0',
+              'com.amazon.drm.VoucherEnvelope@4.0', 'com.amazon.drm.VoucherEnvelope@5.0',
+              'com.amazon.drm.VoucherEnvelope@6.0', 'com.amazon.drm.VoucherEnvelope@7.0',
+              'com.amazon.drm.VoucherEnvelope@8.0', 'com.amazon.drm.VoucherEnvelope@9.0',
+              'com.amazon.drm.VoucherEnvelope@10.0', 'com.amazon.drm.VoucherEnvelope@11.0',
+              'com.amazon.drm.VoucherEnvelope@12.0', 'com.amazon.drm.VoucherEnvelope@13.0',
+              'com.amazon.drm.VoucherEnvelope@14.0', 'com.amazon.drm.VoucherEnvelope@15.0',
+              'com.amazon.drm.VoucherEnvelope@16.0', 'com.amazon.drm.VoucherEnvelope@17.0',
+              'com.amazon.drm.VoucherEnvelope@18.0', 'com.amazon.drm.VoucherEnvelope@19.0',
+              'com.amazon.drm.VoucherEnvelope@20.0', 'com.amazon.drm.VoucherEnvelope@21.0',
+              'com.amazon.drm.VoucherEnvelope@22.0', 'com.amazon.drm.VoucherEnvelope@23.0',
+              'com.amazon.drm.VoucherEnvelope@24.0', 'com.amazon.drm.VoucherEnvelope@25.0',
+              'com.amazon.drm.VoucherEnvelope@26.0', 'com.amazon.drm.VoucherEnvelope@27.0',
+              'com.amazon.drm.VoucherEnvelope@28.0']
 
 def addprottable(ion):
     ion.addtocatalog("ProtectedData", 1, SYM_NAMES)
@@ -735,7 +750,7 @@ def pkcs7unpad(msg, blocklen):
     _assert(len(msg) % blocklen == 0)
 
     paddinglen = bord(msg[-1])
-    _assert(paddinglen > 0 and paddinglen <= blocklen, "Incorrect padding - Wrong key")
+    _assert(paddinglen > 0 and paddinglen <= blocklen, "Incorrect padding - Wrong key.  PaddingLen: {0}, BlockLen: {1}.".format(paddinglen, blocklen))
     _assert(msg[-paddinglen:] == bchr(paddinglen) * paddinglen, "Incorrect padding - Wrong key")
 
     return msg[:-paddinglen]
@@ -779,12 +794,29 @@ class DrmIonVoucher(object):
 
         sharedsecret = shared.encode("UTF-8")
 
+        print("Account Secret: {0}".format(self.secret))
+        print("Client ID: {0}".format(self.dsn))
+        print("Shared Secret: {0}".format(sharedsecret))
+
         key = hmac.new(sharedsecret, sharedsecret[:5], digestmod=hashlib.sha256).digest()
         aes = AES.new(key[:32], AES.MODE_CBC, self.cipheriv[:16])
         b = aes.decrypt(self.ciphertext)
+        print(u"Ciphertext: [{0}]".format(self.ciphertext.encode('hex')))
+        print(u"Plaintext: [{0}]".format(b.encode('hex')))
         b = pkcs7unpad(b, 16)
+        print(u"Plaintext unpadded: [{0}]".format(b.encode('hex')))
 
         self.drmkey = BinaryIonParser(StringIO(b))
+        keywalk = list()
+        print(u"Try: ion.py::DrmIonVoucher.decryptvoucher/self.drmkey.print_(keywalk)")
+        try:
+            self.drmkey.print_(keywalk)
+        except Exception as e:
+            just_the_string = traceback.format_exc()
+            print(u"Voucher decryption ionwalk failed with error: {0}".format(e.args[0]))
+            print(just_the_string)
+            print(keywalk)
+            raise Exception("Voucher decryption failed at ionwalk.  Probably at unpadding, actually.")
         addprottable(self.drmkey)
 
         _assert(self.drmkey.hasnext() and self.drmkey.next() == TID_LIST and self.drmkey.gettypename() == "com.amazon.drm.KeySet@1.0",
@@ -814,8 +846,20 @@ class DrmIonVoucher(object):
     def parse(self):
         self.envelope.reset()
         _assert(self.envelope.hasnext(), "Envelope is empty")
-        _assert(self.envelope.next() == TID_STRUCT and self.envelope.gettypename() == "com.amazon.drm.VoucherEnvelope@1.0",
-                "Unknown type encountered in envelope, expected VoucherEnvelope")
+        _assert(self.envelope.next() == TID_STRUCT, "Next type was not TID_STRUCT.")
+        _assert(self.envelope.gettypename().startswith("com.amazon.drm.VoucherEnvelope"),
+            "Error parsing voucher. Expected 'com.amazon.drm.VoucherEnvelope' but got '{0}' ({1}: {2}).".format(
+                self.envelope.gettypename(),
+                len(self.envelope.annotations),
+                self.envelope.annotations[0] if len(self.envelope.annotations) else ""
+            ))
+
+        #ionwalk_output = list()
+        #self.envelope.print_(ionwalk_output)
+        #print ionwalk_output
+
+        #_assert(self.envelope.gettypename() == "com.amazon.drm.VoucherEnvelope@1.0",
+        #        "Unknown type encountered in envelope, expected VoucherEnvelope but got {0}.".format(self.envelope.gettypename()))
 
         self.envelope.stepin()
         while self.envelope.hasnext():

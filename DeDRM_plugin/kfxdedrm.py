@@ -9,6 +9,7 @@ from __future__ import print_function
 import os
 import shutil
 import zipfile
+import traceback
 
 try:
     from cStringIO import StringIO
@@ -69,19 +70,39 @@ class KFXZipBook:
         print(u'Decrypting KFX DRM voucher: {0}'.format(info.filename))
 
         for pid in [''] + totalpids:
+            print(u"PID: {0}, length: {1}".format(pid, len(pid)))
             for dsn_len,secret_len in [(0,0), (16,0), (16,40), (32,40), (40,0), (40,40)]:
                 if len(pid) == dsn_len + secret_len:
                     break       # split pid into DSN and account secret
             else:
                 continue
 
+            print(u"Try: Create Voucher")
             try:
                 voucher = ion.DrmIonVoucher(StringIO(data), pid[:dsn_len], pid[dsn_len:])
+            except:
+                print(u'Voucher creation failed.')
+                continue
+            print(u"Try: Parse Voucher")
+            try:
                 voucher.parse()
+            except Exception as e:
+                print(u"Voucher parsing failed with error: {0}".format(e.args[0]))
+                continue
+            parsed_envelope = list()
+            voucher.printenvelope((parsed_envelope))
+            print(u"Parsed Envelope:\n{0}".format(parsed_envelope))
+            parsed_voucher = list()
+            voucher.printvoucher(parsed_voucher)
+            print(u"Parsed Voucher:\n{0}".format(parsed_voucher))
+            print(u"Try: Decrypt Voucher")
+            try:
                 voucher.decryptvoucher()
                 break
-            except:
-                pass
+            except Exception as e:
+                just_the_string = traceback.format_exc()
+                print(u"Voucher decryption failed with error: {0}".format(e.args[0]))
+                print(just_the_string)
         else:
             raise Exception(u'Failed to decrypt KFX DRM voucher with any key')
 
